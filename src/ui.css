@@ -311,6 +311,7 @@ body {
   font-weight: 600;
 }
 .pDate {
+  margin-left: 6px;
   font-size: 0.72rem;
   color: var(--muted);
   font-weight: 500;

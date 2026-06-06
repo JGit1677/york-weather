@@ -256,7 +256,8 @@ function Forecast({ periods, tz }) {
           <details key={i} className="period">
             <summary>
               <span className="pName">
-                {p.name} <span className="pDate">{shortDate(p.startTime, tz)}</span>
+                {p.name}
+                {p.isDaytime && <span className="pDate">{shortDate(p.startTime, tz)}</span>}
               </span>
               <span className="pShort">{p.shortForecast}</span>
               <span className="pTemp">
