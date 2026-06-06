@@ -442,3 +442,53 @@ body {
   font-size: 0.9rem;
   cursor: pointer;
 }
+
+/* Refresh feedback: spin while loading, then a brief check-mark pop */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(0.85);
+  }
+  55% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.refreshIcon {
+  display: inline-block;
+  line-height: 1;
+}
+.refresh.spinning {
+  opacity: 1; /* override the disabled dimming so the spin stays visible */
+}
+.refresh.spinning .refreshIcon {
+  animation: spin 0.6s linear infinite;
+}
+.refresh.done {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: pop 0.35s ease;
+}
+.refresh.done .refreshIcon {
+  color: var(--accent);
+}
+.refreshWide.spinning {
+  opacity: 0.85;
+}
+.refreshWide.done {
+  background: var(--calm);
+  animation: pop 0.35s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .refresh.spinning .refreshIcon,
+  .refresh.done,
+  .refreshWide.done {
+    animation: none;
+  }
+}

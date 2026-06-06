@@ -17,6 +17,8 @@ export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshOk, setRefreshOk] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,12 +27,32 @@ export default function App() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
       setError(null);
+      return true;
     } catch (e) {
       setError(e.message);
+      return false;
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // Manual refresh: the JSON snapshot loads almost instantly, so without a
+  // floor the user would see no movement. Spin for at least ~650ms, then flash
+  // a check mark for a moment so it's obvious the refresh actually ran.
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshOk(false);
+    const started = Date.now();
+    const ok = await load();
+    const remaining = 650 - (Date.now() - started);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+    setRefreshing(false);
+    if (ok) {
+      setRefreshOk(true);
+      setTimeout(() => setRefreshOk(false), 1500);
+    }
+  }, [load, refreshing]);
 
   useEffect(() => {
     load();
@@ -44,15 +66,22 @@ export default function App() {
         <button onClick={load}>Retry</button>
       </div>
     );
-  return <Dashboard data={data} onRefresh={load} loading={loading} />;
+  return (
+    <Dashboard
+      data={data}
+      onRefresh={handleRefresh}
+      refreshing={refreshing}
+      refreshOk={refreshOk}
+    />
+  );
 }
 
-function Dashboard({ data, onRefresh, loading }) {
+function Dashboard({ data, onRefresh, refreshing, refreshOk }) {
   const tz = data.location?.timeZone || 'America/New_York';
   const anyFail = (data.health?.sources || []).some((s) => !s.ok);
   return (
     <div className="wrap">
-      <Header data={data} onRefresh={onRefresh} loading={loading} />
+      <Header data={data} onRefresh={onRefresh} refreshing={refreshing} refreshOk={refreshOk} />
       {anyFail && <FeedNotice sources={data.health.sources} />}
       <Current data={data} tz={tz} />
       <GardenWatch garden={data.garden} alerts={data.alerts} />
@@ -60,22 +89,32 @@ function Dashboard({ data, onRefresh, loading }) {
       <Forecast periods={data.pointForecast?.periods} />
       <Aviation aviation={data.aviation} />
       <Nearby nearby={data.nearby} />
-      <Footer data={data} tz={tz} onRefresh={onRefresh} />
+      <Footer data={data} tz={tz} onRefresh={onRefresh} refreshing={refreshing} refreshOk={refreshOk} />
     </div>
   );
 }
 
-function Header({ data, onRefresh, loading }) {
+function Header({ data, onRefresh, refreshing, refreshOk }) {
+  const stamp = refreshing
+    ? 'refreshing…'
+    : refreshOk
+    ? 'updated just now ✓'
+    : `updated ${relTime(data.generatedAt)}`;
   return (
     <header className="hdr">
       <div>
         <h1>York Beach Weather</h1>
         <div className="sub">
-          {data.location?.label} · updated {relTime(data.generatedAt)}
+          {data.location?.label} · {stamp}
         </div>
       </div>
-      <button className="refresh" onClick={onRefresh} disabled={loading} aria-label="Refresh">
-        {loading ? '…' : '↻'}
+      <button
+        className={`refresh${refreshing ? ' spinning' : ''}${refreshOk ? ' done' : ''}`}
+        onClick={onRefresh}
+        disabled={refreshing}
+        aria-label="Refresh"
+      >
+        <span className="refreshIcon">{refreshOk ? '✓' : '↻'}</span>
       </button>
     </header>
   );
@@ -294,7 +333,7 @@ function Nearby({ nearby }) {
   );
 }
 
-function Footer({ data, tz, onRefresh }) {
+function Footer({ data, tz, onRefresh, refreshing, refreshOk }) {
   return (
     <footer className="ftr">
       <div className="health">
@@ -311,8 +350,12 @@ function Footer({ data, tz, onRefresh }) {
       <div className="muted small">
         Snapshot {relTime(data.generatedAt)} · {clock(data.generatedAt, tz, true)}
       </div>
-      <button className="refreshWide" onClick={onRefresh}>
-        Refresh now
+      <button
+        className={`refreshWide${refreshing ? ' spinning' : ''}${refreshOk ? ' done' : ''}`}
+        onClick={onRefresh}
+        disabled={refreshing}
+      >
+        {refreshing ? 'Refreshing…' : refreshOk ? 'Updated ✓' : 'Refresh now'}
       </button>
     </footer>
   );
