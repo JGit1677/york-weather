@@ -1,0 +1,7 @@
+node_modules
+dist
+*.local
+.DS_Store
+
+# Generated weather snapshot — regenerated on every build/deploy.
+public/data/weather.json

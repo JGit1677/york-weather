@@ -1,0 +1,24 @@
+{
+  "name": "york-weather",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Best-available METAR/TAF/NWS weather dashboard for York Beach, Maine (03909).",
+  "scripts": {
+    "data": "node scripts/fetch-weather.mjs",
+    "check": "node scripts/check.mjs",
+    "dev": "vite",
+    "build": "node scripts/fetch-weather.mjs && vite build",
+    "build:nodata": "vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "notify": "node scripts/notify.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7"
+  }
+}
