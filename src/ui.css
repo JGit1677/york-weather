@@ -310,6 +310,11 @@ body {
   grid-area: name;
   font-weight: 600;
 }
+.pDate {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 500;
+}
 .pShort {
   grid-area: short;
   color: var(--muted);

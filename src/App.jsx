@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { relTime, relTimeUnix, clock, dayHour } from './format.js';
+import { relTime, relTimeUnix, clock, dayHour, shortDate } from './format.js';
 import './ui.css';
 
 // Relative URL (base: './') so it works at any GitHub Pages sub-path.
@@ -86,7 +86,7 @@ function Dashboard({ data, onRefresh, refreshing, refreshOk }) {
       <Current data={data} tz={tz} />
       <GardenWatch garden={data.garden} alerts={data.alerts} />
       <Hourly hourly={data.pointForecast?.hourly} tz={tz} />
-      <Forecast periods={data.pointForecast?.periods} />
+      <Forecast periods={data.pointForecast?.periods} tz={tz} />
       <Aviation aviation={data.aviation} />
       <Nearby nearby={data.nearby} />
       <Footer data={data} tz={tz} onRefresh={onRefresh} refreshing={refreshing} refreshOk={refreshOk} />
@@ -246,7 +246,7 @@ function Hourly({ hourly, tz }) {
   );
 }
 
-function Forecast({ periods }) {
+function Forecast({ periods, tz }) {
   if (!periods?.length) return null;
   return (
     <section className="card">
@@ -255,7 +255,9 @@ function Forecast({ periods }) {
         {periods.map((p, i) => (
           <details key={i} className="period">
             <summary>
-              <span className="pName">{p.name}</span>
+              <span className="pName">
+                {p.name} <span className="pDate">{shortDate(p.startTime, tz)}</span>
+              </span>
               <span className="pShort">{p.shortForecast}</span>
               <span className="pTemp">
                 {p.isDaytime ? 'High' : 'Low'} {p.tempF}°

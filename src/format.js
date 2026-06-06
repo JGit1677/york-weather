@@ -29,3 +29,13 @@ export function dayHour(iso, tz) {
   if (!iso) return '';
   return new Date(iso).toLocaleString('en-US', { timeZone: tz, hour: 'numeric' });
 }
+
+// Compact numeric date like "6/7" in the location's local time zone.
+export function shortDate(iso, tz) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-US', {
+    timeZone: tz,
+    month: 'numeric',
+    day: 'numeric',
+  });
+}
