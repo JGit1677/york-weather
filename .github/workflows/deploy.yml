@@ -4,9 +4,12 @@ on:
   push:
     branches: [main]
   schedule:
-    # Refresh data + redeploy every 30 minutes (UTC). METAR updates hourly,
-    # TAF ~4x/day, so this keeps the dashboard current without overkill.
-    - cron: '*/30 * * * *'
+    # GitHub's scheduled runs are best-effort and get throttled hardest at peak
+    # cron minutes (:00 and :30 are the busiest globally), which is why a plain
+    # */30 schedule kept getting skipped. Running every 15 min at OFF-PEAK
+    # offsets keeps the dashboard reliably under ~30 min stale even when GitHub
+    # drops some runs. Public repo => unlimited free Actions minutes.
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch: {}
 
 permissions:
