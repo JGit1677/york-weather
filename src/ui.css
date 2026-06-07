@@ -316,6 +316,18 @@ body {
   color: var(--muted);
   font-weight: 500;
 }
+.liveBadge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(63, 174, 107, 0.22);
+  color: #7fe0a6;
+  vertical-align: middle;
+}
 .pShort {
   grid-area: short;
   color: var(--muted);

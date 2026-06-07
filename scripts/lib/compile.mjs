@@ -345,3 +345,31 @@ export function compile({
     garden,
   };
 }
+
+// Browser helper: given the committed snapshot plus a freshly fetched NWS
+// payload, recompute only the NWS-derived parts (forecast, hourly, alerts,
+// garden flags, summary, sun) and merge them onto the snapshot. Current
+// conditions / nearby / aviation stay from the snapshot because METAR & TAF
+// (aviationweather.gov) have no CORS headers and can't be fetched in-browser.
+// Reuses the exact same builders as compile(), so live and snapshot agree.
+export function applyLiveNws(snapshot, nws, opts = {}) {
+  const location = opts.location || snapshot.location || DEFAULT_LOCATION;
+  const thresholds = opts.thresholds || DEFAULT_TH;
+  const now = opts.now || new Date();
+  const tz = location.timeZone || 'America/New_York';
+  const pointForecast = buildPointForecast(nws.forecast, nws.hourly, now);
+  const alerts = buildAlerts(nws.alerts);
+  const garden = buildGarden(snapshot.current, pointForecast, alerts, now, thresholds, tz);
+  const summary = buildSummary(snapshot.current, pointForecast, garden, location);
+  const astro = nws.points?.properties?.astronomicalData;
+  const sun = astro ? { sunrise: astro.sunrise, sunset: astro.sunset } : snapshot.sun;
+  return {
+    ...snapshot,
+    pointForecast,
+    alerts,
+    garden,
+    summary,
+    sun,
+    liveUpdatedAt: now.toISOString(),
+  };
+}

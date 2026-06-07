@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { relTime, relTimeUnix, clock, dayHour, shortDate } from './format.js';
+import { applyLiveNws } from '../scripts/lib/compile.mjs';
+import { fetchLiveNws } from './nws.js';
 import './ui.css';
 
 // Relative URL (base: './') so it works at any GitHub Pages sub-path.
@@ -19,32 +21,47 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshOk, setRefreshOk] = useState(false);
+  const [live, setLive] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // Load the committed snapshot — fast, always available, and the only source
+  // of METAR/TAF (those have no CORS so can't be fetched in the browser).
+  const loadSnapshot = useCallback(async () => {
+    const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }, []);
+
+  // Show the snapshot immediately, then overlay a live in-browser NWS forecast
+  // when possible. If the live fetch fails, the snapshot simply stays in place.
+  const refresh = useCallback(async () => {
+    let snap;
     try {
-      const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
+      snap = await loadSnapshot();
+      setData(snap);
       setError(null);
-      return true;
     } catch (e) {
       setError(e.message);
       return false;
-    } finally {
-      setLoading(false);
     }
-  }, []);
+    try {
+      const nws = await fetchLiveNws(snap.location);
+      setData(applyLiveNws(snap, nws, { now: new Date() }));
+      setLive(true);
+    } catch {
+      setLive(false);
+    }
+    return true;
+  }, [loadSnapshot]);
 
-  // Manual refresh: the JSON snapshot loads almost instantly, so without a
-  // floor the user would see no movement. Spin for at least ~650ms, then flash
-  // a check mark for a moment so it's obvious the refresh actually ran.
+  // Manual refresh: the snapshot loads almost instantly, so without a floor the
+  // user would see no movement. Spin for at least ~650ms, then flash a check
+  // mark for a moment so it's obvious the refresh actually ran.
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
     setRefreshOk(false);
     const started = Date.now();
-    const ok = await load();
+    const ok = await refresh();
     const remaining = 650 - (Date.now() - started);
     if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
     setRefreshing(false);
@@ -52,18 +69,25 @@ export default function App() {
       setRefreshOk(true);
       setTimeout(() => setRefreshOk(false), 1500);
     }
-  }, [load, refreshing]);
+  }, [refresh, refreshing]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    (async () => {
+      setLoading(true);
+      await refresh();
+      setLoading(false);
+    })();
+    // Keep it fresh while the page sits open, without needing a manual tap.
+    const id = setInterval(() => refresh(), 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [refresh]);
 
   if (!data && loading) return <div className="splash">Loading York Beach weather…</div>;
   if (!data && error)
     return (
       <div className="splash">
         <p>Could not load weather data ({error}).</p>
-        <button onClick={load}>Retry</button>
+        <button onClick={refresh}>Retry</button>
       </div>
     );
   return (
@@ -72,11 +96,12 @@ export default function App() {
       onRefresh={handleRefresh}
       refreshing={refreshing}
       refreshOk={refreshOk}
+      live={live}
     />
   );
 }
 
-function Dashboard({ data, onRefresh, refreshing, refreshOk }) {
+function Dashboard({ data, onRefresh, refreshing, refreshOk, live }) {
   const tz = data.location?.timeZone || 'America/New_York';
   const anyFail = (data.health?.sources || []).some((s) => !s.ok);
   return (
@@ -86,7 +111,7 @@ function Dashboard({ data, onRefresh, refreshing, refreshOk }) {
       <Current data={data} tz={tz} />
       <GardenWatch garden={data.garden} alerts={data.alerts} />
       <Hourly hourly={data.pointForecast?.hourly} tz={tz} />
-      <Forecast periods={data.pointForecast?.periods} tz={tz} />
+      <Forecast periods={data.pointForecast?.periods} tz={tz} live={live} />
       <Aviation aviation={data.aviation} />
       <Nearby nearby={data.nearby} />
       <Footer data={data} tz={tz} onRefresh={onRefresh} refreshing={refreshing} refreshOk={refreshOk} />
@@ -246,11 +271,14 @@ function Hourly({ hourly, tz }) {
   );
 }
 
-function Forecast({ periods, tz }) {
+function Forecast({ periods, tz, live }) {
   if (!periods?.length) return null;
   return (
     <section className="card">
-      <h2>Forecast · your location (NWS)</h2>
+      <h2>
+        Forecast · your location (NWS)
+        {live && <span className="liveBadge">live</span>}
+      </h2>
       <div className="periods">
         {periods.map((p, i) => (
           <details key={i} className="period">
