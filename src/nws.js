@@ -10,16 +10,19 @@ async function getJson(url) {
   return res.json();
 }
 
-export async function fetchLiveNws({ lat, lon }) {
+export async function fetchLiveNws({ lat, lon, station }) {
   const points = await getJson(`https://api.weather.gov/points/${lat},${lon}`);
   const p = points.properties;
   const zone = (p.forecastZone || '').split('/').pop();
-  const [forecast, hourly, alerts] = await Promise.all([
+  const [forecast, hourly, alerts, obs] = await Promise.all([
     getJson(p.forecast),
     getJson(p.forecastHourly),
     zone
       ? getJson(`https://api.weather.gov/alerts/active?zone=${zone}`).catch(() => ({ features: [] }))
       : Promise.resolve({ features: [] }),
+    station
+      ? getJson(`https://api.weather.gov/stations/${station}/observations/latest`).catch(() => null)
+      : Promise.resolve(null),
   ]);
-  return { points, forecast, hourly, alerts };
+  return { points, forecast, hourly, alerts, obs };
 }

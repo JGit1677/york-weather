@@ -346,25 +346,65 @@ export function compile({
   };
 }
 
+// Build a refreshed `current` from a live NWS station observation
+// (api.weather.gov/stations/{id}/observations/latest is CORS-enabled), falling
+// back to the snapshot value field-by-field when the observation omits one
+// (textDescription / rawMessage are sometimes blank). Keeps the snapshot's
+// value if it is actually newer than the observation.
+function liveCurrentFromObs(obs, prev) {
+  const p = obs && obs.properties;
+  if (!p) return prev;
+  const obsUnix = p.timestamp ? Math.round(new Date(p.timestamp).getTime() / 1000) : null;
+  if (obsUnix && prev?.obsTime && obsUnix < prev.obsTime) return prev; // snapshot is newer
+  const tempC = p.temperature?.value;
+  const dewpC = p.dewpoint?.value;
+  const kmh = p.windSpeed?.value;
+  const gustKmh = p.windGust?.value;
+  const dir = p.windDirection?.value;
+  const visM = p.visibility?.value;
+  const rh = p.relativeHumidity?.value;
+  const desc = (p.textDescription || '').trim();
+  const raw = (p.rawMessage || '').trim();
+  const windMph = kmh == null ? prev?.windMph : round(kmh * 0.621371);
+  const gustMph = gustKmh == null ? null : round(gustKmh * 0.621371);
+  return {
+    ...prev,
+    obsTime: obsUnix ?? prev?.obsTime,
+    tempF: tempC == null ? prev?.tempF : round(cToF(tempC)),
+    tempC: tempC == null ? prev?.tempC : round(tempC, 1),
+    dewpF: dewpC == null ? prev?.dewpF : round(cToF(dewpC)),
+    humidity: rh != null ? Math.round(rh) : relHumidity(tempC, dewpC) ?? prev?.humidity,
+    windDir: dir == null ? prev?.windDir : compass16(dir),
+    windMph,
+    gustMph,
+    windText: kmh == null ? prev?.windText : windText(dir, windMph, gustMph),
+    visibility: visM == null ? prev?.visibility : `${round(visM / 1609.34)} mi`,
+    sky: desc || prev?.sky,
+    skyPhrase: desc || prev?.skyPhrase,
+    rawOb: raw || prev?.rawOb,
+  };
+}
+
 // Browser helper: given the committed snapshot plus a freshly fetched NWS
-// payload, recompute only the NWS-derived parts (forecast, hourly, alerts,
-// garden flags, summary, sun) and merge them onto the snapshot. Current
-// conditions / nearby / aviation stay from the snapshot because METAR & TAF
-// (aviationweather.gov) have no CORS headers and can't be fetched in-browser.
-// Reuses the exact same builders as compile(), so live and snapshot agree.
+// payload (forecast + hourly + alerts + nearest-station observation), recompute
+// the NWS-derived parts and merge them onto the snapshot. The TAF (aviation
+// outlook) has no CORS source, so it stays from the snapshot. Reuses the exact
+// same builders as compile(), so live and snapshot agree.
 export function applyLiveNws(snapshot, nws, opts = {}) {
   const location = opts.location || snapshot.location || DEFAULT_LOCATION;
   const thresholds = opts.thresholds || DEFAULT_TH;
   const now = opts.now || new Date();
   const tz = location.timeZone || 'America/New_York';
+  const current = nws.obs ? liveCurrentFromObs(nws.obs, snapshot.current) : snapshot.current;
   const pointForecast = buildPointForecast(nws.forecast, nws.hourly, now);
   const alerts = buildAlerts(nws.alerts);
-  const garden = buildGarden(snapshot.current, pointForecast, alerts, now, thresholds, tz);
-  const summary = buildSummary(snapshot.current, pointForecast, garden, location);
+  const garden = buildGarden(current, pointForecast, alerts, now, thresholds, tz);
+  const summary = buildSummary(current, pointForecast, garden, location);
   const astro = nws.points?.properties?.astronomicalData;
   const sun = astro ? { sunrise: astro.sunrise, sunset: astro.sunset } : snapshot.sun;
   return {
     ...snapshot,
+    current,
     pointForecast,
     alerts,
     garden,

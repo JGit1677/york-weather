@@ -44,7 +44,11 @@ export default function App() {
       return false;
     }
     try {
-      const nws = await fetchLiveNws(snap.location);
+      const nws = await fetchLiveNws({
+        lat: snap.location.lat,
+        lon: snap.location.lon,
+        station: snap.current?.station,
+      });
       setData(applyLiveNws(snap, nws, { now: new Date() }));
       setLive(true);
     } catch {
