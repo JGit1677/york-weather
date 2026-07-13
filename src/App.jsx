@@ -163,17 +163,25 @@ function FeedNotice({ sources }) {
 
 function Current({ data, tz }) {
   const c = data.current;
+  // Headline temp: NWS model for the exact yard grid cell when available —
+  // coastal York Beach often runs ~10°F cooler than inland airports on
+  // sea-breeze days. The station reading stays visible as the observation.
+  const yard = data.yardNowF;
+  const heroTemp = yard ?? c?.tempF;
   return (
     <section className="card hero">
       {c ? (
         <>
           <div className="heroTop">
             <div className="temp">
-              {c.tempF}
+              {heroTemp}
               <span className="deg">°F</span>
             </div>
             <div className="heroMeta">
               <div className="cond">{cap(c.skyPhrase)}</div>
+              {yard != null && (
+                <div className="metaRow">NWS estimate for York Beach itself</div>
+              )}
               <div className="metaRow">Wind {c.windText}</div>
               <div className="metaRow">
                 Humidity {c.humidity}% · Dew {c.dewpF}°F
@@ -187,8 +195,8 @@ function Current({ data, tz }) {
             </div>
           </div>
           <div className="source">
-            Nearest report: {c.name} ({c.station}) · {c.distanceMi} mi · observed{' '}
-            {relTimeUnix(c.obsTime)}
+            Nearest report: {c.name} ({c.station}) · {c.distanceMi} mi
+            {yard != null && <> · reads {c.tempF}°F</>} · observed {relTimeUnix(c.obsTime)}
           </div>
         </>
       ) : (

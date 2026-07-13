@@ -287,12 +287,30 @@ function buildGarden(current, pointForecast, alerts, now, th, tz) {
   return { status, flags, lowF: low?.value ?? null, highF: high?.value ?? null, maxRainPct48: maxPop48 };
 }
 
+// ---- yard nowcast ---------------------------------------------------------
+
+// Temperature the NWS model gives for the exact yard grid cell at this hour.
+// Airport METARs can run ~10°F hotter than the immediate coast on sea-breeze
+// afternoons (KPSM is up the Piscataqua), so this is the more representative
+// headline number; the station reading is kept alongside as the observation.
+function yardNowcast(hourly, now) {
+  if (!Array.isArray(hourly)) return null;
+  const t = now.getTime();
+  for (const h of hourly) {
+    const start = new Date(h.time).getTime();
+    if (t >= start && t < start + HOURS(1)) return h.tempF ?? null;
+  }
+  return hourly[0]?.tempF ?? null;
+}
+
 // ---- top-line plain-English summary --------------------------------------
 
-function buildSummary(current, pointForecast, garden, location) {
+function buildSummary(current, pointForecast, garden, location, yardNowF) {
   const s = [];
   const p0 = pointForecast?.periods?.[0];
-  if (current) {
+  if (current && yardNowF != null) {
+    s.push(`Right now in ${location.label.split(',')[0]}: about ${yardNowF}°F near the water (${current.station}, ${current.distanceMi} mi inland, reads ${current.tempF}°F), ${current.skyPhrase}, wind ${current.windText}.`);
+  } else if (current) {
     s.push(`Right now in ${location.label.split(',')[0]}: ${current.tempF}°F, ${current.skyPhrase}, wind ${current.windText} (${current.station}, ${current.distanceMi} mi).`);
   } else if (p0) {
     s.push(`${location.label.split(',')[0]}: ${p0.shortForecast.toLowerCase()}.`);
@@ -323,10 +341,11 @@ export function compile({
   const current = buildCurrent(ranked[0]);
   const nearby = buildNearby(ranked);
   const pointForecast = buildPointForecast(nws.forecast, nws.hourly, now);
+  const yardNowF = yardNowcast(pointForecast.hourly, now);
   const aviation = buildAviation(tafs, location, location.timeZone);
   const alerts = buildAlerts(nws.alerts);
   const garden = buildGarden(current, pointForecast, alerts, now, thresholds, location.timeZone);
-  const summary = buildSummary(current, pointForecast, garden, location);
+  const summary = buildSummary(current, pointForecast, garden, location, yardNowF);
 
   const astro = nws.points?.properties?.astronomicalData;
   const sun = astro ? { sunrise: astro.sunrise, sunset: astro.sunset } : null;
@@ -337,6 +356,7 @@ export function compile({
     location: { label: location.label, lat: location.lat, lon: location.lon, timeZone: location.timeZone },
     summary,
     sun,
+    yardNowF,
     current,
     nearby,
     pointForecast,
@@ -397,14 +417,16 @@ export function applyLiveNws(snapshot, nws, opts = {}) {
   const tz = location.timeZone || 'America/New_York';
   const current = nws.obs ? liveCurrentFromObs(nws.obs, snapshot.current) : snapshot.current;
   const pointForecast = buildPointForecast(nws.forecast, nws.hourly, now);
+  const yardNowF = yardNowcast(pointForecast.hourly, now);
   const alerts = buildAlerts(nws.alerts);
   const garden = buildGarden(current, pointForecast, alerts, now, thresholds, tz);
-  const summary = buildSummary(current, pointForecast, garden, location);
+  const summary = buildSummary(current, pointForecast, garden, location, yardNowF);
   const astro = nws.points?.properties?.astronomicalData;
   const sun = astro ? { sunrise: astro.sunrise, sunset: astro.sunset } : snapshot.sun;
   return {
     ...snapshot,
     current,
+    yardNowF,
     pointForecast,
     alerts,
     garden,

@@ -115,6 +115,7 @@ console.log('Structure:');
     ok(k in r, `has key: ${k}`);
   }
   ok(typeof r.summary === 'string' && r.summary.length > 0, 'summary is a non-empty string');
+  ok(r.yardNowF === 60, `yard nowcast comes from current-hour NWS temp (got ${r.yardNowF})`);
 }
 
 console.log('Live weather.json (if present):');
