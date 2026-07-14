@@ -20,6 +20,16 @@ export const TAF_STATIONS = ['KPSM', 'KPWM'];
 // watches/warnings/advisories (freeze, wind, heat, etc.).
 export const NWS_ZONE = 'MEZ023';
 
+// Nearest true COASTAL observation: Wells Reserve at Laudholm (NERRS), via
+// NDBC. ~11.6 mi up the coast, half a mile from the ocean — same sea-breeze
+// microclimate as York Beach, unlike the inland airports. Reports every 15 min.
+export const COASTAL_STATION = {
+  id: 'WEXM1',
+  name: 'Wells Reserve (Laudholm Farm)',
+  lat: 43.337,
+  lon: -70.549,
+};
+
 // Sent as User-Agent to api.weather.gov. NWS asks for a descriptive UA
 // with contact info; replace the email with your own if you like.
 export const CONTACT = 'york-weather-dashboard (github pages; contact: you@example.com)';

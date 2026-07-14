@@ -6,7 +6,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compile } from './lib/compile.mjs';
+import { compile, parseCoastal } from './lib/compile.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const NOW = new Date('2026-06-06T12:00:00Z');
@@ -118,13 +118,31 @@ console.log('Structure:');
   ok(r.yardNowF === 60, `yard nowcast comes from current-hour NWS temp (got ${r.yardNowF})`);
 }
 
+console.log('Coastal blend:');
+{
+  // Synthetic NDBC realtime2 rows: newest first, ATMP col 14 (index 13), °C.
+  // 21.1°C = 70°F, observed at NOW (freshness window is 60 min).
+  const stamp = `${NOW.getUTCFullYear()} ${String(NOW.getUTCMonth() + 1).padStart(2, '0')} ${String(NOW.getUTCDate()).padStart(2, '0')} ${String(NOW.getUTCHours()).padStart(2, '0')} ${String(NOW.getUTCMinutes()).padStart(2, '0')}`;
+  const ndbc = `#YY  MM DD hh mm WDIR WSPD GST  WVHT   DPD   APD MWD   PRES  ATMP  WTMP  DEWP  VIS PTDY  TIDE\n#yr  mo dy hr mn degT m/s  m/s     m   sec   sec degT   hPa  degC  degC  degC  nmi  hPa    ft\n${stamp} 180  3.1   MM    MM    MM    MM  MM     MM  21.1    MM  15.0   MM   MM    MM`;
+  const parsed = parseCoastal(ndbc);
+  ok(parsed?.tempF === 70, `NDBC parser reads 21.1°C as 70°F (got ${parsed?.tempF})`);
+  ok(parsed?.station === 'WEXM1', 'coastal ob tagged with station id');
+  const r = compile({ nws: nwsFixture({ tempF: 60 }), coastalText: ndbc, now: NOW });
+  ok(r.nowF === 65, `blend averages yard 60 + coastal 70 -> 65 (got ${r.nowF})`);
+  const stale = ndbc.replace(stamp, '2026 06 05 12 00');
+  const r2 = compile({ nws: nwsFixture({ tempF: 60 }), coastalText: stale, now: NOW });
+  ok(r2.nowF === 60, `stale coastal ob drops out of the blend (got ${r2.nowF})`);
+  const skipRow = `#YY  MM DD hh mm WDIR WSPD GST  WVHT   DPD   APD MWD   PRES  ATMP  WTMP  DEWP  VIS PTDY  TIDE\n${stamp} 180  3.1   MM    MM    MM    MM  MM     MM    MM    MM  15.0   MM   MM    MM\n${stamp} 170  2.9   MM    MM    MM    MM  MM     MM  21.1    MM  15.1   MM   MM    MM`;
+  ok(parseCoastal(skipRow)?.tempF === 70, 'parser skips rows with missing ATMP');
+}
+
 console.log('Live weather.json (if present):');
 try {
   const file = resolve(__dirname, '../public/data/weather.json');
   const data = JSON.parse(await readFile(file, 'utf8'));
   ok(data.schema === 1, 'live file schema === 1');
   ok(/York/i.test(data.location?.label || ''), 'live file location is York');
-  ok(Array.isArray(data.health?.sources) && data.health.sources.length === 3, 'live file records 3 source health rows');
+  ok(Array.isArray(data.health?.sources) && data.health.sources.length === 4, 'live file records 4 source health rows');
   if (data.current) {
     ok(data.current.tempF > -40 && data.current.tempF < 120, `live current temp sane (${data.current.tempF}°F)`);
     ok(data.current.distanceMi >= 0 && data.current.distanceMi < 80, `nearest station within range (${data.current.station}, ${data.current.distanceMi} mi)`);

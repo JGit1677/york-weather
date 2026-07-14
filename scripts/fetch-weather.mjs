@@ -4,7 +4,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchMetars, fetchTafs, fetchNws } from './lib/sources.mjs';
+import { fetchMetars, fetchTafs, fetchNws, fetchCoastal } from './lib/sources.mjs';
 import { compile } from './lib/compile.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,21 +22,23 @@ async function settled(label, fn) {
 }
 
 async function main() {
-  const [metars, tafs, nws] = await Promise.all([
+  const [metars, tafs, nws, coastal] = await Promise.all([
     settled('metar', fetchMetars),
     settled('taf', fetchTafs),
     settled('nws', fetchNws),
+    settled('coastal', fetchCoastal),
   ]);
 
   const compiled = compile({
     metars: metars.value || [],
     tafs: tafs.value || [],
     nws: nws.value || {},
+    coastalText: coastal.value || null,
     now: new Date(),
   });
 
   compiled.health = {
-    sources: [metars, tafs, nws].map((s) => ({
+    sources: [metars, tafs, nws, coastal].map((s) => ({
       name: s.label,
       ok: s.ok,
       fetchedAt: s.fetchedAt,

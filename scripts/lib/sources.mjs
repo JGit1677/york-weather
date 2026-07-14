@@ -1,7 +1,14 @@
 // Network layer. Runs in Node (GitHub Actions / local), so the missing CORS
 // headers on aviationweather.gov are irrelevant here.
 
-import { LOCATION, METAR_STATIONS, TAF_STATIONS, NWS_ZONE, CONTACT } from '../../config.mjs';
+import {
+  LOCATION,
+  METAR_STATIONS,
+  TAF_STATIONS,
+  NWS_ZONE,
+  CONTACT,
+  COASTAL_STATION,
+} from '../../config.mjs';
 
 const NWS_HEADERS = { 'User-Agent': CONTACT, Accept: 'application/geo+json' };
 
@@ -21,6 +28,16 @@ export async function fetchMetars() {
 export async function fetchTafs() {
   const ids = TAF_STATIONS.join(',');
   return getJson(`https://aviationweather.gov/api/data/taf?ids=${ids}&format=json`);
+}
+
+// NDBC realtime2 text feed for the coastal NERRS station (no JSON API, no
+// CORS — server-side only). Returns the raw text; parsing lives in compile.
+export async function fetchCoastal() {
+  const res = await fetch(
+    `https://www.ndbc.noaa.gov/data/realtime2/${COASTAL_STATION.id}.txt`
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status} for NDBC ${COASTAL_STATION.id}`);
+  return res.text();
 }
 
 export async function fetchNws() {

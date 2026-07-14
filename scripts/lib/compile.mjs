@@ -2,7 +2,11 @@
 // No network here, so check.mjs can feed it fixtures (including synthetic
 // cold / windy / stormy days) and assert the garden logic fires correctly.
 
-import { LOCATION as DEFAULT_LOCATION, THRESHOLDS as DEFAULT_TH } from '../../config.mjs';
+import {
+  LOCATION as DEFAULT_LOCATION,
+  THRESHOLDS as DEFAULT_TH,
+  COASTAL_STATION,
+} from '../../config.mjs';
 import { distanceMi, cToF, ktToMph, relHumidity, round, parseMaxMph } from './geo.mjs';
 import { skyWord, wxWords, fmtTime, cloudPhrase } from './decode.mjs';
 
@@ -287,6 +291,56 @@ function buildGarden(current, pointForecast, alerts, now, th, tz) {
   return { status, flags, lowF: low?.value ?? null, highF: high?.value ?? null, maxRainPct48: maxPop48 };
 }
 
+// ---- coastal observation (NDBC realtime2 text) ----------------------------
+
+// Parse the NDBC realtime2 fixed-column text for the Wells Reserve station.
+// Columns: YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES ATMP WTMP DEWP …
+// "MM" means missing; rows are newest-first. Returns the newest row that has
+// an air temperature, or null.
+export function parseCoastal(text, location = DEFAULT_LOCATION) {
+  if (!text) return null;
+  const lines = String(text).split('\n').filter((l) => l && !l.startsWith('#'));
+  for (const line of lines.slice(0, 8)) {
+    const c = line.trim().split(/\s+/);
+    if (c.length < 16 || c[13] === 'MM') continue;
+    const obsMs = Date.UTC(+c[0], +c[1] - 1, +c[2], +c[3], +c[4]);
+    const tempC = parseFloat(c[13]);
+    const windMs = c[6] === 'MM' ? null : parseFloat(c[6]);
+    const windMph = windMs == null ? null : round(windMs * 2.23694);
+    const dewC = c[15] === 'MM' ? null : parseFloat(c[15]);
+    return {
+      station: COASTAL_STATION.id,
+      name: COASTAL_STATION.name,
+      distanceMi: round(
+        distanceMi(location.lat, location.lon, COASTAL_STATION.lat, COASTAL_STATION.lon),
+        1
+      ),
+      obsTime: Math.round(obsMs / 1000),
+      tempF: round(cToF(tempC)),
+      dewpF: dewC == null ? null : round(cToF(dewC)),
+      windDir: c[5] === 'MM' ? null : compass16(+c[5]),
+      windMph,
+    };
+  }
+  return null;
+}
+
+// Best current-temperature estimate for the yard: average the NWS grid model
+// with the real coastal observation when that observation is fresh (≤90 min —
+// NDBC posts every 15 min but publishes with some lag). The two bracket the
+// truth from opposite sides — model vs measurement, both coastal — and the
+// blend has tracked Jon's on-site readings closely.
+export const COASTAL_FRESH_SECS = 5400;
+function blendNow(yardNowF, coastal, now) {
+  const fresh =
+    coastal?.tempF != null &&
+    coastal.obsTime != null &&
+    now.getTime() / 1000 - coastal.obsTime <= COASTAL_FRESH_SECS;
+  if (yardNowF != null && fresh) return round((yardNowF + coastal.tempF) / 2);
+  if (fresh) return coastal.tempF;
+  return yardNowF;
+}
+
 // ---- yard nowcast ---------------------------------------------------------
 
 // Temperature the NWS model gives for the exact yard grid cell at this hour.
@@ -305,11 +359,11 @@ function yardNowcast(hourly, now) {
 
 // ---- top-line plain-English summary --------------------------------------
 
-function buildSummary(current, pointForecast, garden, location, yardNowF) {
+function buildSummary(current, pointForecast, garden, location, nowF) {
   const s = [];
   const p0 = pointForecast?.periods?.[0];
-  if (current && yardNowF != null) {
-    s.push(`Right now in ${location.label.split(',')[0]}: about ${yardNowF}°F near the water (${current.station}, ${current.distanceMi} mi inland, reads ${current.tempF}°F), ${current.skyPhrase}, wind ${current.windText}.`);
+  if (current && nowF != null) {
+    s.push(`Right now in ${location.label.split(',')[0]}: about ${nowF}°F near the water (${current.station}, ${current.distanceMi} mi inland, reads ${current.tempF}°F), ${current.skyPhrase}, wind ${current.windText}.`);
   } else if (current) {
     s.push(`Right now in ${location.label.split(',')[0]}: ${current.tempF}°F, ${current.skyPhrase}, wind ${current.windText} (${current.station}, ${current.distanceMi} mi).`);
   } else if (p0) {
@@ -333,6 +387,7 @@ export function compile({
   metars = [],
   tafs = [],
   nws = {},
+  coastalText = null,
   now = new Date(),
   location = DEFAULT_LOCATION,
   thresholds = DEFAULT_TH,
@@ -342,10 +397,12 @@ export function compile({
   const nearby = buildNearby(ranked);
   const pointForecast = buildPointForecast(nws.forecast, nws.hourly, now);
   const yardNowF = yardNowcast(pointForecast.hourly, now);
+  const coastal = parseCoastal(coastalText, location);
+  const nowF = blendNow(yardNowF, coastal, now);
   const aviation = buildAviation(tafs, location, location.timeZone);
   const alerts = buildAlerts(nws.alerts);
   const garden = buildGarden(current, pointForecast, alerts, now, thresholds, location.timeZone);
-  const summary = buildSummary(current, pointForecast, garden, location, yardNowF);
+  const summary = buildSummary(current, pointForecast, garden, location, nowF);
 
   const astro = nws.points?.properties?.astronomicalData;
   const sun = astro ? { sunrise: astro.sunrise, sunset: astro.sunset } : null;
@@ -357,6 +414,8 @@ export function compile({
     summary,
     sun,
     yardNowF,
+    coastal,
+    nowF,
     current,
     nearby,
     pointForecast,
@@ -418,15 +477,19 @@ export function applyLiveNws(snapshot, nws, opts = {}) {
   const current = nws.obs ? liveCurrentFromObs(nws.obs, snapshot.current) : snapshot.current;
   const pointForecast = buildPointForecast(nws.forecast, nws.hourly, now);
   const yardNowF = yardNowcast(pointForecast.hourly, now);
+  // Coastal ob comes from the snapshot (NDBC has no CORS); blendNow re-checks
+  // its freshness against live "now" so a stale snapshot ob drops out.
+  const nowF = blendNow(yardNowF, snapshot.coastal, now);
   const alerts = buildAlerts(nws.alerts);
   const garden = buildGarden(current, pointForecast, alerts, now, thresholds, tz);
-  const summary = buildSummary(current, pointForecast, garden, location, yardNowF);
+  const summary = buildSummary(current, pointForecast, garden, location, nowF);
   const astro = nws.points?.properties?.astronomicalData;
   const sun = astro ? { sunrise: astro.sunrise, sunset: astro.sunset } : snapshot.sun;
   return {
     ...snapshot,
     current,
     yardNowF,
+    nowF,
     pointForecast,
     alerts,
     garden,

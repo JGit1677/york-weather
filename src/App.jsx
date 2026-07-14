@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { relTime, relTimeUnix, clock, dayHour, shortDate } from './format.js';
-import { applyLiveNws } from '../scripts/lib/compile.mjs';
+import { applyLiveNws, COASTAL_FRESH_SECS } from '../scripts/lib/compile.mjs';
 import { fetchLiveNws } from './nws.js';
 import './ui.css';
 
@@ -163,11 +163,20 @@ function FeedNotice({ sources }) {
 
 function Current({ data, tz }) {
   const c = data.current;
-  // Headline temp: NWS model for the exact yard grid cell when available —
-  // coastal York Beach often runs ~10°F cooler than inland airports on
-  // sea-breeze days. The station reading stays visible as the observation.
-  const yard = data.yardNowF;
+  // Headline temp: blend of the NWS yard-cell model and the Wells Reserve
+  // coastal observation when fresh (nowF), else the model alone (yardNowF),
+  // else the airport reading. Coastal York Beach often runs ~10°F cooler than
+  // inland airports on sea-breeze days.
+  const yard = data.nowF ?? data.yardNowF;
   const heroTemp = yard ?? c?.tempF;
+  const coastal = data.coastal;
+  // Same freshness rule as the compiler, so the label only claims the
+  // coastal ob when the blend actually included it.
+  const coastalFresh =
+    coastal?.tempF != null &&
+    coastal.obsTime != null &&
+    Date.now() / 1000 - coastal.obsTime <= COASTAL_FRESH_SECS;
+  const usedBlend = data.nowF != null && coastalFresh;
   return (
     <section className="card hero">
       {c ? (
@@ -180,7 +189,11 @@ function Current({ data, tz }) {
             <div className="heroMeta">
               <div className="cond">{cap(c.skyPhrase)}</div>
               {yard != null && (
-                <div className="metaRow">NWS estimate for York Beach itself</div>
+                <div className="metaRow">
+                  {usedBlend
+                    ? 'Estimate for York Beach (coastal obs + NWS)'
+                    : 'NWS estimate for York Beach itself'}
+                </div>
               )}
               <div className="metaRow">Wind {c.windText}</div>
               <div className="metaRow">
@@ -197,6 +210,13 @@ function Current({ data, tz }) {
           <div className="source">
             Nearest report: {c.name} ({c.station}) · {c.distanceMi} mi
             {yard != null && <> · reads {c.tempF}°F</>} · observed {relTimeUnix(c.obsTime)}
+            {coastal?.tempF != null && (
+              <>
+                <br />
+                Coastal: {coastal.name} ({coastal.station}) · {coastal.distanceMi} mi · reads{' '}
+                {coastal.tempF}°F · observed {relTimeUnix(coastal.obsTime)}
+              </>
+            )}
           </div>
         </>
       ) : (
